@@ -49,7 +49,6 @@ Master::Master()throw(std::runtime_error):
 	_file_no(file_no_t()), 
 	_buffered_files(File_t()), 
 	_IOnode_socket(IOnode_sock_t()), 
-	_working_node_pool(_working_pool_t());
 	_node_number(0), 
 	_file_number(0), 
 	_node_id_pool(new bool[MAX_NODE_NUMBER]), 
@@ -291,37 +290,11 @@ int Master::_parse_registed_request(int clientfd)
 		id=_IOnode_socket.at(clientfd)->node_id;
 		fprintf(stderr, "IOnode %ld shutdown\nIP Address=%s, Unregisted\n", id, _registed_IOnodes.at(id).ip.c_str()), 
 		_delete_IO_node(clientfd);break;
-	case READ_FINISHED:
-		_io_finished(clientfd);break;
-	case WRITE_FINISHED:
-		_io_finished(clientfd);break;
 /*	default:
 		Send(clientfd, UNRECOGNISTED); */
 	}
 	return ans; 
 }
-
-int Master::_io_finished(int clientfd)
-{
-	ssize_t file_no;
-	Recv(clientfd, file_no);
-	ssize_t node_id=_IOnode_socket[clientfd]->node_id;
-	try
-	{
-		working_node_t &node_pool=_running_node_pool.at(file_no);
-		node_pool.erase(node_id);
-		if(0 == node_pool.size())
-		{
-			_running_node_pool.erase(file_no);
-		}
-	}
-	catch(std::out_of_range &e)
-	{
-		return FAILURE;
-	}
-	return SUCCESS;
-}
-		
 
 int Master::_parse_open_file(int clientfd, std::string& ip)
 {
@@ -458,7 +431,6 @@ Master::node_t Master::_send_request_to_IOnodes(const char *file_path, ssize_t f
 		Sendv(socket, file_path, strlen(file_path));
 		Send(socket, it->first); 
 		Send(socket, block_size); 
-		_woring_node_pool[file_no].insert(it->second);
 	}
 	return nodes; 
 }
@@ -530,7 +502,6 @@ int Master::_parse_write_file(int clientfd, std::string& ip)
 			Sendv(socket, file.path.c_str(), file.path.size());
 			Send(socket, it->first); 
 			Send(socket, my_block_size); 
-			_working_node_pool[file_no].insert(it->second);
 		}
 		file.p_node=nodes;
 		for(node_t::const_iterator it=file.p_node.begin();
@@ -579,7 +550,6 @@ int Master::_parse_flush_file(int clientfd, std::string& ip)
 			int socket=_IOnode_socket.at(*it)->socket;
 			Send(socket, FLUSH_FILE);
 			Send(socket, file_no);
-			_working_node_pool[file_no].insert(*it);
 //			int ret=0;
 //			Recv(socket, ret);
 		}
@@ -610,7 +580,6 @@ int Master::_parse_close_file(int clientfd, std::string& ip)
 			int socket=_registed_IOnodes.at(*it).socket;
 			Send(socket, CLOSE_FILE);
 			Send(socket, file_no);
-			_working_node_pool[file_no].insert(*it);
 //			int ret=0;
 //			Recv(socket, ret);
 		}

@@ -89,7 +89,6 @@ private:
 	//IO-node_server_address
 	struct sockaddr_in _master_conn_addr;
 	struct sockaddr_in _master_addr;
-	int _master_socket;
 };
 
 #endif
