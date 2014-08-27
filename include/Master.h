@@ -43,7 +43,13 @@ private:
 	typedef std::map<ssize_t, node_info> IOnode_t; 
 
 	typedef std::map<ssize_t, file_info> File_t; 
-
+	
+	//working_node_pool set:node_id
+	typedef std::set<ssize_t> working_node_t;
+	//map: file_no, working_node_pool
+	typedef std::map<ssize_t, working_node_t> working_pool_t;
+	//map: how many job assigned to a node map: node_id, job number
+	typedef std::map<ssize_t, int> node_job_t;
 	struct file_info
 	{
 		file_info(const std::string& path, size_t size, size_t block_size, const node_t& IOnodes, int flag); 
@@ -77,6 +83,7 @@ private:
 	ssize_t _get_file_no(); 
 	void _send_node_info(int socket, std::string& ip)const;
 	void _send_file_info(int socket, std::string& ip)const; 
+	void _send_file_info_for_reading(int clientfd);
 	void _send_file_meta(int socket, std::string& ip)const; 
 
 	IOnode_t::iterator _find_by_ip(const std::string& ip);
@@ -90,6 +97,7 @@ private:
 	int _parse_write_file(int clientfd, std::string& ip);
 	int _parse_flush_file(int clientfd, std::string& ip);
 	int _parse_close_file(int clientfd, std::string& ip);
+	int _io_finished(int clientfd);
 	node_t _send_request_to_IOnodes(const char *file_path, ssize_t file_no, int flag, size_t& file_length, size_t& block_size)throw(std::invalid_argument); 
 	node_t _select_IOnode(size_t file_size, size_t block_size)const; 
 
@@ -100,6 +108,8 @@ private:
 	file_no_t _file_no;  
 	File_t _buffered_files; 
 	IOnode_sock_t _IOnode_socket; 
+	working_pool_t _file_node_pool;
+	node_job_t _working_nodes_pool;
 
 	ssize_t _node_number;
 	ssize_t _file_number; 

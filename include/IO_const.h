@@ -37,6 +37,8 @@ const int GET_FILE_META = 11;
 
 const int SERVER_SHUT_DOWN = 20; 
 const int I_AM_SHUT_DOWN = 21;
+const int READ_FINISHED = 22;
+const int WRITE_FINISHED = 24;
 
 const int TOO_MANY_FILES =50;
 const int FILE_NOT_FOUND = 51;

@@ -48,7 +48,9 @@ Master::Master()throw(std::runtime_error):
 	_registed_IOnodes(IOnode_t()), 
 	_file_no(file_no_t()), 
 	_buffered_files(File_t()), 
-	_IOnode_socket(IOnode_sock_t()), 
+	_IOnode_socket(IOnode_sock_t()),
+	_file_node_pool(working_pool_t()),
+	_working_nodes_pool(node_job_t()),
 	_node_number(0), 
 	_file_number(0), 
 	_node_id_pool(new bool[MAX_NODE_NUMBER]), 
@@ -220,7 +222,9 @@ int Master::_parse_regist_IOnode(int clientfd,const std::string& ip)
 	size_t total_memory;
 	fprintf(stderr, "regist IOnode\nip=%s\n",ip.c_str());
 	Recv(clientfd, total_memory);
-	Send(clientfd, _add_IO_node(ip, total_memory, clientfd));
+	ssize_t id= _add_IO_node(ip, total_memory, clientfd);
+	Send(clientfd,id);
+	_working_nodes_pool[id]=0;
 	return 1;
 }
 
@@ -279,6 +283,39 @@ void Master::_send_file_info(int clientfd, std::string& ip)const
 	return; 
 }	
 
+void Master::_send_file_info_for_reading(int clientfd)
+{
+	ssize_t file_no; 
+	Recv(clientfd, file_no); 
+	const file_info *file=NULL; 
+	try
+	{
+		file=&(_buffered_files.at(file_no));
+		Send(clientfd, SUCCESS);
+	}
+	catch(std::out_of_range &e)
+	{
+		const char OUT_OF_RANGE[]="out of range\n"; 
+		Send(clientfd, OUT_OF_RANGE);
+		return; 
+	}
+	Send(clientfd, file->size);
+	Send(clientfd, file->block_size);
+	
+	Send(clientfd, static_cast<int>(file->p_node.size()));
+
+	for(node_t::const_iterator it=file->p_node.begin(); it!=file->p_node.end(); ++it)
+	{
+		Send(clientfd, it->first);
+		const node_info &node=_registed_IOnodes.at(it->second); 
+		const std::string& ip=node.ip;
+		Sendv(clientfd, ip.c_str(), ip.size());
+		++_working_nodes_pool[node.node_id];
+	}
+	close(clientfd);
+	return; 
+}	
+
 int Master::_parse_registed_request(int clientfd)
 {
 	int request, ans=SUCCESS; 
@@ -290,11 +327,44 @@ int Master::_parse_registed_request(int clientfd)
 		id=_IOnode_socket.at(clientfd)->node_id;
 		fprintf(stderr, "IOnode %ld shutdown\nIP Address=%s, Unregisted\n", id, _registed_IOnodes.at(id).ip.c_str()), 
 		_delete_IO_node(clientfd);break;
+	case READ_FINISHED:
+		_io_finished(clientfd);break;
+	case WRITE_FINISHED:
+		_io_finished(clientfd);break;
 /*	default:
 		Send(clientfd, UNRECOGNISTED); */
 	}
 	return ans; 
 }
+
+int Master::_io_finished(int clientfd)
+{
+	ssize_t file_no;
+	Recv(clientfd, file_no);
+	ssize_t node_id=_IOnode_socket[clientfd]->node_id;
+	fprintf(stderr, "IO finished, node id =%d\n", node_id);
+	try
+	{
+		working_node_t &node_pool=_file_node_pool.at(file_no);
+		node_pool.erase(node_id);
+		
+		int &count=_working_nodes_pool[node_id];
+		if(0 < count)
+		{
+			--count;
+		}
+		if(0 == node_pool.size())
+		{
+			_file_node_pool.erase(file_no);
+		}
+	}
+	catch(std::out_of_range &e)
+	{
+		return FAILURE;
+	}
+	return SUCCESS;
+}
+		
 
 int Master::_parse_open_file(int clientfd, std::string& ip)
 {
@@ -308,6 +378,7 @@ int Master::_parse_open_file(int clientfd, std::string& ip)
 		ssize_t file_no;
 		_open_file(file_path, flag, file_no); 
 		size_t size=_buffered_files.at(file_no).size;
+
 		delete file_path; 
 		Send(clientfd, SUCCESS);
 		Send(clientfd, file_no);
@@ -335,6 +406,11 @@ int Master::_parse_open_file(int clientfd, std::string& ip)
 	catch(std::bad_alloc &e)
 	{
 		Send(clientfd, TOO_MANY_FILES);
+		ret=FAILURE;
+	}
+	catch(std::out_of_range &e)
+	{
+		fprintf(stderr, "out of range?\n");
 		ret=FAILURE;
 	}
 	close(clientfd);
@@ -431,6 +507,8 @@ Master::node_t Master::_send_request_to_IOnodes(const char *file_path, ssize_t f
 		Sendv(socket, file_path, strlen(file_path));
 		Send(socket, it->first); 
 		Send(socket, block_size); 
+		++_working_nodes_pool.at(it->second);
+		_file_node_pool[file_no].insert(it->second);
 	}
 	return nodes; 
 }
@@ -443,10 +521,13 @@ Master::node_t Master::_select_IOnode(size_t file_size, size_t block_size)const
 	for(IOnode_t::const_iterator it=_registed_IOnodes.begin();
 			_registed_IOnodes.end() != it;++it)
 	{
-		for(int i=0;i<count && (count_node++)<node_number;++i)
+		if(0 == _working_nodes_pool.at(it->first))
 		{
-			nodes.insert(std::make_pair(start_point, it->first));
-			start_point += block_size;
+			for(int i=0;i<count && (count_node++)<node_number;++i)
+			{
+				nodes.insert(std::make_pair(start_point, it->first));
+				start_point += block_size;
+			}
 		}
 	}
 	return nodes; 
@@ -455,7 +536,7 @@ Master::node_t Master::_select_IOnode(size_t file_size, size_t block_size)const
 int Master::_parse_read_file(int clientfd, std::string& ip)
 {
 	fprintf(stderr, "request for reading ip=%s\n",ip.c_str());
-	_send_file_info(clientfd, ip);
+	_send_file_info_for_reading(clientfd);
 	close(clientfd);
 	return 1;
 }
@@ -502,6 +583,8 @@ int Master::_parse_write_file(int clientfd, std::string& ip)
 			Sendv(socket, file.path.c_str(), file.path.size());
 			Send(socket, it->first); 
 			Send(socket, my_block_size); 
+			++_working_nodes_pool.at(it->second);
+			_file_node_pool[file_no].insert(it->second);
 		}
 		file.p_node=nodes;
 		for(node_t::const_iterator it=file.p_node.begin();
@@ -509,7 +592,7 @@ int Master::_parse_write_file(int clientfd, std::string& ip)
 		{
 			file.nodes.insert(it->second);
 		}
-		Send(clientfd, SUCCESS);	
+		Send(clientfd, SUCCESS);
 		Send(clientfd, static_cast<int>(file.p_node.size()));
 		Send(clientfd, file.size);
 		Send(clientfd, file.block_size);
@@ -532,7 +615,9 @@ int Master::_parse_write_file(int clientfd, std::string& ip)
 
 size_t Master::_get_block_size(size_t size)
 {
-	return (size+_node_number-1)/_node_number;
+	return size;
+	//sample layout
+	//return (size+_node_number-1)/_node_number;
 }
 
 int Master::_parse_flush_file(int clientfd, std::string& ip)
@@ -550,6 +635,8 @@ int Master::_parse_flush_file(int clientfd, std::string& ip)
 			int socket=_IOnode_socket.at(*it)->socket;
 			Send(socket, FLUSH_FILE);
 			Send(socket, file_no);
+			++_working_nodes_pool[*it];
+			_file_node_pool[file_no].insert(*it);
 //			int ret=0;
 //			Recv(socket, ret);
 		}
@@ -580,6 +667,8 @@ int Master::_parse_close_file(int clientfd, std::string& ip)
 			int socket=_registed_IOnodes.at(*it).socket;
 			Send(socket, CLOSE_FILE);
 			Send(socket, file_no);
+			_file_node_pool[file_no].insert(*it);
+			++_working_nodes_pool[*it];
 //			int ret=0;
 //			Recv(socket, ret);
 		}
