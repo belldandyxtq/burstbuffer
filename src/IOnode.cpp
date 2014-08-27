@@ -80,22 +80,21 @@ int IOnode::_regist(const std::string& master_ip, int master_port) throw(std::ru
 		perror("Server IP Address Error"); 
 		throw std::runtime_error("Server IP Address Error");
 	}
-	int master_socket;
 	try
 	{
-		master_socket=Client::_connect_to_server(_master_conn_addr, _master_addr); 
+		_master_socket=Client::_connect_to_server(_master_conn_addr, _master_addr); 
 	}
 	catch(std::runtime_error &e)
 	{
 		throw;
 	}
-	Send(master_socket, REGIST);
-	Send(master_socket, _memory);
+	Send(_master_socket, REGIST);
+	Send(_master_socket, _memory);
 	int id=-1;
-	Recv(master_socket, id);
-	Server::_add_socket(master_socket);
+	Recv(_master_socket, id);
+	Server::_add_socket(_master_socket);
 	int open;
-	Recv(master_socket, open);
+	Recv(_master_socket, open);
 	return id; 
 }
 
@@ -198,6 +197,8 @@ int IOnode::_read_file(int sockfd)
 	{
 		_read_from_storage(path, it->second);
 	}
+	Send(sockfd, READ_FINISHED);
+	Send(sockfd, file_no);
 	return SUCCESS;
 }
 
@@ -296,6 +297,8 @@ int IOnode::_receive_data(int clientfd)
 		Send(clientfd, FILE_NOT_FOUND);
 		return FAILURE;
 	}
+	Send(_master_socket, WRITE_FINISHED);
+	Send(_master_socket, file_no);
 	return SUCCESS;
 }
 
@@ -314,6 +317,8 @@ int IOnode::_write_back_file(int clientfd)
 		Send(clientfd, SUCCESS);
 		const std::string &path=_file_path.at(file_no);
 		_write_to_storage(path, _block);
+		Send(clientfd, WRITE_FINISHED);
+		Send(clientfd, file_no);
 	}
 	catch(std::out_of_range &e)
 	{
@@ -380,7 +385,8 @@ int IOnode::_flush_file(int sockfd)
 			_block->dirty_flag=CLEAN;
 		}
 	}
-	//Send(sockfd, SUCCESS);
+	Send(sockfd, WRITE_FINISHED);
+	Send(sockfd, file_no);
 	return SUCCESS;
 }
 
@@ -403,6 +409,7 @@ int IOnode::_close_file(int sockfd)
 	}
 	_files.erase(file_no);
 	_file_path.erase(file_no);
-	//Send(sockfd, SUCCESS);
+	Send(sockfd, WRITE_FINISHED);
+	Send(sockfd, file_no);
 	return SUCCESS;
 }
