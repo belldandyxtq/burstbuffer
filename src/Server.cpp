@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/epoll.h>
+#include <pthread.h>
 
 #include "include/Server.h"
 #include "include/IO_const.h"
@@ -27,6 +28,7 @@ Server::~Server()
 
 void Server::_init_server()throw(std::runtime_error)
 {
+	printf("Initializing server\n");
 	memset(&_server_addr,  0,  sizeof(_server_addr)); 
 	_server_addr.sin_family = AF_INET;  
 	_server_addr.sin_addr.s_addr = htons(INADDR_ANY);  
@@ -53,6 +55,7 @@ void Server::_init_server()throw(std::runtime_error)
 	event.data.fd=_server_socket;
 	event.events=EPOLLIN|EPOLLET;
 	epoll_ctl(_epollfd, EPOLL_CTL_ADD, _server_socket, &event);
+	printf("Initialization finished\n");
 	return; 
 }
 
@@ -76,19 +79,20 @@ int Server::_delete_socket(int socketfd)
 
 void Server::start_server()
 {
+	printf("start server\n");
 	struct epoll_event events[MAX_NODE_NUMBER+1]; 
 	memset(events, 0, sizeof(struct epoll_event)*(MAX_NODE_NUMBER+1)); 
 	while(1)
 	{
 		struct sockaddr_in client_addr;  
 		socklen_t length=sizeof(client_addr);
-		int nfds=epoll_wait(_epollfd, events, MAX_NODE_NUMBER+1, -1); 
+		int nfds=epoll_wait(_epollfd, events, MAX_NODE_NUMBER+1, WAIT_INTERVAL); 
 		int ret=SUCCESS; 
-		for(int i=0; i<nfds; ++i)
+		for(int i=0;i<nfds;++i)
 		{
-			//new socket
 			if(events[i].data.fd  == _server_socket)
 			{
+				//new socket
 				int new_client=accept(_server_socket,  reinterpret_cast<sockaddr *>(&client_addr),  &length);  
 				if( 0 > new_client)
 				{
@@ -97,12 +101,12 @@ void Server::start_server()
 					continue;  
 				}
 				fprintf(stderr,  "A New Client\n"); 
-				ret=_parse_new_request(new_client,  client_addr);
+				ret=_parse_new_request(new_client, client_addr);
 			}
 			//communication from registed nodes
 			else
 			{
-				ret=_parse_registed_request(events[i].data.fd); 
+				ret=_parse_registed_request(events[i].data.fd);
 			}
 		}
 		if(SERVER_SHUT_DOWN == ret)
@@ -110,10 +114,11 @@ void Server::start_server()
 			puts("I will shut down\n");
 			break; 
 		}
+		_routine_check();
 	}
 	return;  
 }
-
+		
 void Server::stop_server()
 {
 	for(socket_pool_t::iterator it=_IOnode_socket_pool.begin(); 
@@ -129,3 +134,5 @@ void Server::stop_server()
 	return;
 }
 
+void Server::_routine_check()
+{}

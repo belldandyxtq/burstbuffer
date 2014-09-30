@@ -12,12 +12,16 @@
 
 #include <string>
 #include <map>
+#include <vector>
+
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <stdexcept>
 #include <exception>
 #include <stdlib.h>
+#include <signal.h>
+#include <aio.h>
 
 #include "include/Server.h"
 #include "include/Client.h"
@@ -27,13 +31,13 @@ class IOnode:public Server, Client
 //API
 public:
 	IOnode(const std::string& master_ip,  int master_port) throw(std::runtime_error);
-	//~IOnode();
+	~IOnode();
 //nested class
 private:
 
 	struct block
 	{
-		block(off_t start_point, size_t size, bool dirty_flag) throw(std::bad_alloc);
+		block(off_t start_point, size_t size, bool dirty_flag, size_t &total_memory) throw(std::bad_alloc);
 		~block();
 		block(const block&);
 		size_t size;
@@ -41,12 +45,48 @@ private:
 		off_t  start_point;
 		bool dirty_flag;
 	};
+
 	//map: start_point : block*
 	typedef std::map<off_t, block*> block_info_t; 
 	//map: file_no: block_info
 	typedef std::map<ssize_t, block_info_t > file_blocks_t; 
-	
+	//map file_no, file path
 	typedef std::map<ssize_t, std::string> file_path_t;
+
+	typedef int (*aio_fun)(struct aiocb *);
+	class lio_info
+	{
+	public:
+		int nitems;
+		struct aiocb **iolist;
+		int master_socket;
+		ssize_t file_no;
+		pthread_spinlock_t lock;
+		lio_info(ssize_t file_no, int master_socket, int *fd, int nitems, off_t start_point,void *buffer, int mode, size_t nbytes);
+		~lio_info();
+	};
+
+	struct requested_blocks
+	{
+		void *buffer;
+		off_t start_point;
+		size_t size;
+		requested_blocks(void *buffer, off_t start_point, size_t size);
+	};
+
+	typedef std::vector<requested_blocks> io_blocks_t;
+
+	class aio_info
+	{
+	public:
+		io_blocks_t* block_set; 
+		io_blocks_t::iterator present_block;
+		struct aiocb cb;
+		aio_fun io_fun;	
+		aio_info(io_blocks_t* block_set, aio_fun io_fun);
+		~aio_info();
+	};
+
 //private function
 private:
 	//don't allow copy
@@ -54,9 +94,10 @@ private:
 	int _connect_to_master()throw(std::runtime_error);
 	//regist IOnode to master,  on success return IOnode_id,  on failure throw runtime_error
 	int _regist(const std::string&  master, int master_port) throw(std::runtime_error);
+	void _send_blocks_to_other();
 	//unregist IOnode from master
-	virtual int _parse_new_request(int sockfd, const struct sockaddr_in& client_addr); 
-	virtual int _parse_registed_request(int sockfd); 
+	virtual int _parse_new_request(int socket, const struct sockaddr_in& client_addr); 
+	virtual int _parse_registed_request(int socket); 
 
 	int _send_data(int sockfd);
 	int _open_file(int sockfd); 
@@ -64,12 +105,20 @@ private:
 	int _write_file(int sockfd);
 	int _flush_file(int sockfd);
 	int _close_file(int sockfd);
+
+	io_blocks_t *_get_io_blocks(block_info_t &blocks, off_t start_point, size_t size);
 	block *_buffer_block(off_t start_point, size_t size)throw(std::runtime_error);
 	int _receive_data(int sockfd); 
 	int _write_back_file(int sockfd);
-	size_t _write_to_storage(const std::string& path, const block* block_data)throw(std::runtime_error); 
-	size_t _read_from_storage(const std::string& path, const block* block_data)throw(std::runtime_error);
+	int _write_to_storage(const ssize_t &file_no, const std::string& path, const block* block_data)throw(std::runtime_error); 
+	int _read_from_storage(const ssize_t &file_no, const std::string& path, const block* block_data)throw(std::runtime_error);
+	
+	int _add_lio_job(ssize_t file_no, int *fd, int nitems, off_t start_point, void *buffer, int mode, size_t nbytes);
+	int _add_aio_job(block_info_t &file_block, int sockfd, off_t start_point, size_t size, aio_fun io_fun); 
+	int _get_parallel_number(size_t file_size);
 
+	static void _lio_thread_fun(union sigval);
+	static void _aio_thread_fun(union sigval);
 //private member
 private:
 
@@ -80,6 +129,7 @@ private:
 
 	file_blocks_t _files;
 	file_path_t _file_path;	
+	
 	int _current_block_number;
 	int _MAX_BLOCK_NUMBER;
 	//remain available memory; 
@@ -89,7 +139,11 @@ private:
 	//IO-node_server_address
 	struct sockaddr_in _master_conn_addr;
 	struct sockaddr_in _master_addr;
+	
 	int _master_socket;
+	int _master_io_comm_socket;
+
+	pthread_spinlock_t _master_comm_lock;
 };
 
 #endif

@@ -1,12 +1,20 @@
+SERVER_LIB = server
+CLIENT_LIB = client
 MASTER_LIB = Master
 IONODE_LIB = IOnode
-SERVER_LIB = Server
-CLIENT_LIB = Client
-QUERY_LIB = Query_Client
-USER_LIB = User_Client
+USER_LIB = userclient
+QUERY_LIB = query
 
-MASTER = master_main
-IONODE = node_main
+MASTER = Master
+IONODE = IOnode
+SERVER = Server
+CLIENT = Client
+QUERY = Query_Client
+USER = User_Client
+CONST = IO_const
+
+MASTER_MAIN = master_main
+IONODE_MAIN = node_main
 USER_MAIN = user_main
 USER_CLIENT = user_client
 
@@ -16,8 +24,16 @@ LIB = lib
 BIN = bin
 
 CC = g++
-FLAG = -O3 -Wall
-#FLAG = -g -Wall
+LD = ld
+#FLAG = -O3 -Wall
+FLAG = -g -Wall
+LIBFLAG = -shared -fPIC
+C11 = -std=c++0x
+LIB_PATH = -L./ -L./lib
+
+vpath %.h ./include
+vpath %.so ./lib
+vpath %.cpp ./src
 
 run:
 	@echo 'run make Master'
@@ -25,73 +41,60 @@ run:
 	@echo 'or make User_main'
 	@echo 'or make User_client'
 
-$(SERVER_LIB).o:$(SRC)/$(SERVER_LIB).cpp $(INCLUDE)/$(SERVER_LIB).h
-	$(CC) -c $(FLAG) -I . -o $(SERVER_LIB).o $(SRC)/$(SERVER_LIB).cpp
+lib$(SERVER_LIB).so: $(SERVER).cpp $(SERVER).h $(CONST).h
+	$(CC) $(C11) $(LIBFLAG) $(FLAG) -I./ -o lib$(SERVER_LIB).so $(SRC)/$(SERVER).cpp
 
-$(CLIENT_LIB).o:$(SRC)/$(CLIENT_LIB).cpp  $(INCLUDE)/$(CLIENT_LIB).h
-	$(CC) -c $(FLAG) -I . -o $(CLIENT_LIB).o $(SRC)/$(CLIENT_LIB).cpp
+lib$(CLIENT_LIB).so: $(CLIENT).cpp $(CLIENT).h $(CONST).h
+	$(CC) $(LIBFLAG) $(FLAG) -I./ -o lib$(CLIENT_LIB).so $(SRC)/$(CLIENT).cpp
 
-$(QUERY_LIB).o:$(SRC)/$(QUERY_LIB).cpp $(INCLUDE)/$(QUERY_LIB).h
-	$(CC) -c $(FLAG) -I . -o $(QUERY_LIB).o $(SRC)/$(QUERY_LIB).cpp
+lib$(QUERY_LIB).so: $(QUERY).cpp $(QUERY).h $(CONST).h
+	$(CC) $(LIBFLAG) $(FLAG) -I./ -o lib$(QUERY_LIB).so $(SRC)/$(QUERY).cpp
 
-$(USER_LIB).o:$(SRC)/$(USER_LIB).cpp $(INCLUDE)/$(USER_LIB).h
-	$(CC) -c $(FLAG) -I . -lrt -o $(USER_LIB).o $(SRC)/$(USER_LIB).cpp
+lib$(USER_LIB).so: $(USER).cpp $(USER).h $(CONST).h
+	$(CC) $(LIBFLAG) $(FLAG) -I./ -lrt -o lib$(USER_LIB).so $(SRC)/$(USER).cpp
 
-$(MASTER).o:$(SRC)/$(MASTER_LIB).cpp $(INCLUDE)/$(MASTER_LIB).h
-	$(CC) -c $(FLAG) -I . -o $(MASTER_LIB).o $(SRC)/$(MASTER_LIB).cpp
+lib$(MASTER_LIB).so: $(MASTER_LIB).cpp $(MASTER_LIB).h $(CONST).h
+	$(CC) $(C11) $(LIBFLAG) $(FLAG) -I./ -o lib$(MASTER_LIB).so $(SRC)/$(MASTER).cpp
 
-$(IONODE).o:$(SRC)/$(IONODE_LIB).cpp $(INCLUDE)/$(IONODE_LIB).h
-	$(CC) -c $(FLAG) -I . -o $(IONODE_LIB).o $(SRC)/$(IONODE_LIB).cpp
+lib$(IONODE_LIB).so: $(IONODE).cpp $(IONODE).h $(CONST).h
+	$(CC) $(LIBFLAG) $(C11) $(FLAG) -I./ -lrt -o lib$(IONODE_LIB).so $(SRC)/$(IONODE).cpp
 
-$(MASTER):$(SERVER_LIB).o $(MASTER).o $(SRC)/$(MASTER).cpp
-	$(CC) $(FLAG) -I . -o $(MASTER) $(SERVER_LIB).o $(MASTER_LIB).o $(SRC)/$(MASTER).cpp
+$(MASTER_MAIN): lib$(SERVER_LIB).so lib$(MASTER_LIB).so $(MASTER_MAIN).cpp $(CONST).h
+	$(CC) $(C11) $(FLAG) -I./ $(LIB_PATH) -o $(MASTER_MAIN) $(SRC)/$(MASTER_MAIN).cpp -lrt -l$(SERVER_LIB) -l$(MASTER_LIB)
 
-$(IONODE):$(SERVER_LIB).o $(IONODE).o $(SRC)/$(IONODE).cpp $(CLIENT_LIB).o
-	$(CC) $(FLAG) -I . -o $(IONODE) $(SERVER_LIB).o $(CLIENT_LIB).o $(IONODE_LIB).o $(SRC)/$(IONODE).cpp
+$(IONODE_MAIN): lib$(SERVER_LIB).so lib$(IONODE_LIB).so lib$(CLIENT_LIB).so $(IONODE).cpp  $(CONST).h
+	$(CC) $(FLAG) -I./ $(LIB_PATH) -o $(IONODE_MAIN) $(SRC)/$(IONODE_MAIN).cpp -lrt -l$(SERVER_LIB) -l$(CLIENT_LIB) -l$(IONODE_LIB)
 
-$(USER_MAIN):$(CLIENT_LIB).o $(QUERY_LIB).o $(SRC)/$(USER_MAIN).cpp
-	$(CC) $(FLAG) -I . -o $(USER_MAIN) $(CLIENT_LIB).o $(QUERY_LIB).o $(SRC)/$(USER_MAIN).cpp
+$(USER_MAIN): lib$(CLIENT_LIB).so lib$(QUERY_LIB).so $(USER_MAIN).cpp $(CONST).h
+	$(CC) $(FLAG) -I./ $(LIB_PATH) -o $(USER_MAIN) $(SRC)/$(USER_MAIN).cpp -l$(CLIENT_LIB) -l$(QUERY_LIB)
 
-$(USER_CLIENT):$(CLIENT_LIB).o $(USER_LIB).o $(SRC)/$(USER_CLIENT).cpp
-	$(CC) $(FLAG) -I . -lrt -o $(USER_CLIENT) $(USER_LIB).o $(CLIENT_LIB).o $(SRC)/$(USER_CLIENT).cpp
+$(USER_CLIENT): lib$(CLIENT_LIB).so lib$(USER_LIB).so $(USER_CLIENT).cpp $(CONST).h
+	$(CC) $(FLAG) -I./ $(LIB_PATH) -o $(USER_CLIENT) $(SRC)/$(USER_CLIENT).cpp -lrt -l$(CLIENT_LIB) -l$(USER_LIB)
 
 .PHONY:
-Master:$(MASTER)
-	mkdir -p lib
+Master:$(MASTER_MAIN)
 	mkdir -p bin
-	rm -f bin/$(MASTER)
-	rm -f lib/$(MASTER_LIB).o lib/$(SERVER_LIB).o
-	mv $(MASTER) bin
-	mv $(MASTER_LIB).o lib
-	mv $(SERVER_LIB).o lib
+	mkdir -p lib
+	mv $(MASTER_MAIN) bin
+	mv *.so lib
 
-IOnode:$(IONODE)
+IOnode:$(IONODE_MAIN)
 	mkdir -p lib
 	mkdir -p bin
-	rm -f bin/$(IONODE)
-	rm -f lib/$(IONODE_LIB).o lib/$(SERVER_LIB).o lib/$(CLIENT_LIB).o
-	mv $(IONODE) bin
-	mv $(IONODE_LIB).o lib
-	mv $(SERVER_LIB).o lib
-	mv $(CLIENT_LIB).o lib
+	mv $(IONODE_MAIN) bin
+	mv *.so lib
 
 User_main:$(USER_MAIN)
 	mkdir -p lib
 	mkdir -p bin
-	rm -f bin/$(USER_MAIN)
-	rm -f lib/$(QUERY_LIB).o lib/$(CLIENT_LIB).o
-	mv $(CLIENT_LIB).o lib
-	mv $(QUERY_LIB).o lib
 	mv $(USER_MAIN) bin
+	mv *.so lib
 
 User_client:$(USER_CLIENT)
 	mkdir -p lib
 	mkdir -p bin
-	rm -f bin/$(USER_CLIENT)
-	rm -f lib/$(USER_LIB).o lib/$(CLIENT_LIB).o
-	mv $(CLIENT_LIB).o lib
-	mv $(USER_LIB).o lib
 	mv $(USER_CLIENT) bin
+	mv *.so lib
 
 clean:
 	rm $(BIN)/*

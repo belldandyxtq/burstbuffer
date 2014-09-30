@@ -32,7 +32,7 @@ private:
 	typedef std::set<ssize_t> file_t;
 	//map file start_point:node_id
 	typedef std::map<off_t, ssize_t> node_t; 
-
+	//set node id
 	typedef std::set<ssize_t> node_pool_t;
 	//map file_path: file_no
 	typedef std::map<std::string, ssize_t> file_no_t; 
@@ -48,8 +48,7 @@ private:
 	typedef std::set<ssize_t> working_node_t;
 	//map: file_no, working_node_pool
 	typedef std::map<ssize_t, working_node_t> working_pool_t;
-	//map: how many job assigned to a node map: node_id, job number
-	typedef std::map<ssize_t, int> node_job_t;
+	
 	struct file_info
 	{
 		file_info(const std::string& path, size_t size, size_t block_size, const node_t& IOnodes, int flag); 
@@ -60,6 +59,7 @@ private:
 		size_t block_size;
 		//open file
 		int flag; 
+		int open_count;
 	}; 
 
 	struct node_info
@@ -71,45 +71,53 @@ private:
 		std::size_t avaliable_memory; 
 		std::size_t total_memory;
 		int socket; 
+		int io_comm_socket;
+		int wan_job_counter;
+		int lan_job_counter;
+		int heart_beat;
 	}; 
 
 private:
 	ssize_t _add_IO_node(const std::string& node_ip, std::size_t avaliable_memory, int socket);
 	ssize_t _delete_IO_node(int socket);
-	const node_t& _open_file(const char* file_path, int flag, ssize_t& file_no)throw(std::runtime_error, std::invalid_argument, std::bad_alloc);
+	node_t& _open_file(const char* file_path, int flag, ssize_t& file_no)throw(std::runtime_error, std::invalid_argument, std::bad_alloc);
 	int _update_file_info(int file_no); 
 	int _get_file_blocks(const std::string& file_path);
 	ssize_t _get_node_id(); 
 	ssize_t _get_file_no(); 
-	void _send_node_info(int socket, std::string& ip)const;
-	void _send_file_info(int socket, std::string& ip)const; 
+	void _send_node_info(int socket, const std::string& ip)const;
+	void _send_file_info(int socket, const std::string& ip)const; 
 	void _send_file_info_for_reading(int clientfd);
-	void _send_file_meta(int socket, std::string& ip)const; 
+	void _send_file_meta(int socket, const std::string& ip)const; 
 
 	IOnode_t::iterator _find_by_ip(const std::string& ip);
 
-	virtual int _parse_new_request(int socketfd, const struct sockaddr_in& client_addr);
-	virtual int _parse_registed_request(int socketfd); 
+	virtual int _parse_new_request(int socket, const struct sockaddr_in& client_addr); 
+	virtual int _parse_registed_request(int socket); 
+	virtual void _routine_check();
 	int _parse_regist_IOnode(int clientfd, const std::string& ip);
+	int _parse_io_comm_regist(int clientfd, const std::string& ip);
 	//file operation
-	int _parse_open_file(int clientfd, std::string& ip); 
-	int _parse_read_file(int clientfd, std::string& ip);
-	int _parse_write_file(int clientfd, std::string& ip);
-	int _parse_flush_file(int clientfd, std::string& ip);
-	int _parse_close_file(int clientfd, std::string& ip);
-	int _io_finished(int clientfd);
+	int _parse_open_file(int clientfd, const std::string& ip); 
+	int _parse_read_file(int clientfd, const std::string& ip);
+	int _parse_write_file(int clientfd, const std::string& ip);
+	int _parse_flush_file(int clientfd, const std::string& ip);
+	int _parse_close_file(int clientfd, const std::string& ip);
+	int _wan_io_finished(int clientfd);
+	int _lan_io_finished(int clientfd);
 	node_t _send_request_to_IOnodes(const char *file_path, ssize_t file_no, int flag, size_t& file_length, size_t& block_size)throw(std::invalid_argument); 
 	node_t _select_IOnode(size_t file_size, size_t block_size)const; 
 
 	void _send_IO_request(const node_t &nodes, ssize_t file_no, size_t block_size, const char* file_path, int mode)const;
 	size_t _get_block_size(size_t length);
+
 private:
 	IOnode_t _registed_IOnodes;
 	file_no_t _file_no;  
 	File_t _buffered_files; 
 	IOnode_sock_t _IOnode_socket; 
-	working_pool_t _file_node_pool;
-	node_job_t _working_nodes_pool;
+	//working_pool_t _file_node_pool;
+	//node_job_t _working_nodes_pool;
 
 	ssize_t _node_number;
 	ssize_t _file_number; 

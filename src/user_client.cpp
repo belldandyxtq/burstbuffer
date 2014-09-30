@@ -115,6 +115,7 @@ ssize_t User_Client::iob_read(ssize_t fd, void *buffer, size_t size)
 		struct aiocb **aio_list=new aiocb*[count];
 		memset(ionode_aiocb,0,sizeof(ionode_aiocb));
 		int *socket_pool=new int[count];
+		int j=0;
 		for(int i=0;i<count;++i)
 		{
 			Recv(master_socket, start_point);
@@ -123,23 +124,35 @@ ssize_t User_Client::iob_read(ssize_t fd, void *buffer, size_t size)
 			if(end_point > now_point)
 			{
 				_set_IOnode_addr(ip);
-				socket_pool[i] = Client::_connect_to_server(client_addr, IOnode_addr);
-				Send(socket_pool[i], READ_FILE);
-				Send(socket_pool[i], fd);
-				Send(socket_pool[i], now_point);
+				socket_pool[j] = Client::_connect_to_server(client_addr, IOnode_addr);
+				Send(socket_pool[j], READ_FILE);
+				Send(socket_pool[j], fd);
+				Send(socket_pool[j], now_point);
 				size_t receive_size=end_point-now_point;
-				Send(socket_pool[i], receive_size);
-				fprintf(stderr, "receive data from %s\nstart_point=%lu, receive_size=%lu\n", ip, now_point, receive_size);
-				ionode_aiocb[i].aio_fildes=socket_pool[i]; 
-				ionode_aiocb[i].aio_buf=reinterpret_cast<char*>(buffer)+start_point; 
-				ionode_aiocb[i].aio_nbytes=receive_size;
-				ionode_aiocb[i].aio_lio_opcode=LIO_READ;
-				aio_list[i]=ionode_aiocb+i;
+				Send(socket_pool[j], receive_size);
+				int ret;
+				Recv(socket_pool[j], ret);
+				if(SUCCESS == ret)
+				{
+					fprintf(stderr, "receive data from %s\nstart_point=%lu, receive_size=%lu\n", ip, now_point, receive_size);
+					ionode_aiocb[j].aio_fildes=socket_pool[j]; 
+					ionode_aiocb[j].aio_buf=reinterpret_cast<char*>(buffer)+start_point; 
+					ionode_aiocb[j].aio_nbytes=receive_size;
+					ionode_aiocb[j].aio_lio_opcode=LIO_READ;
+					aio_list[j]=ionode_aiocb+j;
+					++j;
+				}
+				else
+				{
+					close(socket_pool[j]);
+					fprintf(stderr, "error occured ip=%s, start_point=%ld\n", ip, start_point);
+				}
 				//Recvv_pre_alloc(socket_pool[i], reinterpret_cast<char*>(buffer)+start_point, receive_size);
 				now_point=end_point;
 			}
 			delete ip;
 		}
+		count=j;
 		close(master_socket);
 		_do_io(aio_list, count);
 		for(int i=0;i<count;++i)
@@ -215,28 +228,40 @@ ssize_t User_Client::iob_write(ssize_t fd, const void *buffer, size_t count)
 		struct aiocb **aio_list=new aiocb*[count];
 		memset(ionode_aiocb, 0, sizeof(struct aiocb));
 		int *socket_pool=new int[count];
+		int j=0;
 		for(int i=0;i<count;++i)
 		{
 			Recv(master_socket, start_point);
 			Recvv(master_socket, &ip);
 			_set_IOnode_addr(ip);
-			socket_pool[i] = Client::_connect_to_server(client_addr, IOnode_addr);
-			Send(socket_pool[i], WRITE_FILE);
-			Send(socket_pool[i], fd);
-			Send(socket_pool[i], start_point);
+			socket_pool[j] = Client::_connect_to_server(client_addr, IOnode_addr);
+			Send(socket_pool[j], WRITE_FILE);
+			Send(socket_pool[j], fd);
+			Send(socket_pool[j], start_point);
 			size_t send_size=(start_point+block_size < file_size? block_size:file_size-start_point);
-			Send(socket_pool[i], send_size);
-			fprintf(stderr, "send data to %s\nstart_point=%lu\n", ip, start_point);
-			ionode_aiocb[i].aio_fildes=socket_pool[i]; 
-			ionode_aiocb[i].aio_offset=0;
-			ionode_aiocb[i].aio_buf=reinterpret_cast<char*>(const_cast<void*>(buffer))+start_point; 
-			ionode_aiocb[i].aio_nbytes=send_size;
-			ionode_aiocb[i].aio_lio_opcode=LIO_WRITE;
-			aio_list[i]=ionode_aiocb+i;
-			//Sendv_pre_alloc(socket_pool[i], reinterpret_cast<const char*>(buffer)+start_point, send_size);
+			Send(socket_pool[j], send_size);
+			int ret;
+			Recv(socket_pool[j], ret);
+			if(SUCCESS == ret)
+			{
+				fprintf(stderr, "send data to %s\nstart_point=%lu\n", ip, start_point);
+				ionode_aiocb[j].aio_fildes=socket_pool[j]; 
+				ionode_aiocb[j].aio_offset=0;
+				ionode_aiocb[j].aio_buf=reinterpret_cast<char*>(const_cast<void*>(buffer))+start_point; 
+				ionode_aiocb[j].aio_nbytes=send_size;
+				ionode_aiocb[j].aio_lio_opcode=LIO_WRITE;
+				aio_list[j]=ionode_aiocb+j;
+				++j;
+			}
+			else
+			{
+				close(socket_pool[j]);
+				fprintf(stderr, "error occured ip=%s, start_point=%d\n", ip, start_point);
+			}
 			now_point+=send_size;
 			delete ip;
 		}
+		count=j;
 		close(master_socket);
 		_do_io(aio_list, count);
 		for(int i=0;i<count;++i)
